@@ -1,0 +1,78 @@
+name: Benchmark
+
+# Measures the scan speed of a published image on a GitHub-hosted runner; the report is in the run summary.
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image to measure
+        default: ghcr.io/drslid/filefender:stable
+      clients:
+        description: Parallel clients
+        default: "16"
+  push:
+    branches: [main]
+    paths: [scripts/bench.mjs, .github/workflows/bench.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: ${{ inputs.image || 'ghcr.io/drslid/filefender:stable' }}
+      CLIENTS: ${{ inputs.clients || '16' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start FileFender
+        run: |
+          docker pull --quiet "$IMAGE"
+          started="$(date +%s)"
+          docker run -d --name filefender -p 127.0.0.1:8080:8080 --read-only \
+            --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL --security-opt no-new-privileges:true "$IMAGE"
+          for _ in $(seq 1 300); do
+            curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/readyz
+          echo "READY_SECONDS=$(($(date +%s) - started))" >>"$GITHUB_ENV"
+
+      - name: Benchmark
+        run: |
+          to_mib() {
+            awk '{ v = $1; u = v; gsub(/[0-9.]/, "", u); sub(/[A-Za-z]+$/, "", v); v += 0
+                   if (u == "GiB") v *= 1024; else if (u == "KiB") v /= 1024; else if (u != "MiB") v = 0
+                   if (v > max) max = v } END { printf "%.0f", max }'
+          }
+          key="$(docker exec filefender filefender keys create bench | grep -E '^ff_')"
+          echo "::add-mask::$key"
+          idle="$(docker stats --no-stream --format '{{.MemUsage}}' filefender | to_mib)"
+          while :; do docker stats --no-stream --format '{{.MemUsage}}' filefender; done >memory.log &
+          sampler=$!
+          FILEFENDER_URL=http://127.0.0.1:8080 FILEFENDER_KEY="$key" node scripts/bench.mjs --clients "$CLIENTS" --json bench.json | tee bench.md
+          kill "$sampler"
+          peak="$(to_mib <memory.log)"
+          {
+            echo "## FileFender scan speed"
+            echo
+            cat bench.md
+            echo
+            echo "Image \`$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")\`."
+            echo "Runner: $(nproc) vCPU ($(lscpu | sed -n 's/^Model name: *//p')), $(free -g | awk '/^Mem:/ {print $2}') GB of RAM, Node.js $(node --version)."
+            echo "Ready ${READY_SECONDS} s after \`docker run\`. Container memory: ${idle} MiB idle, ${peak} MiB at most during the benchmark."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark
+          path: bench.json
+
+      - name: Container logs
+        if: failure()
+        run: docker logs filefender 2>&1 | tail -n 100
