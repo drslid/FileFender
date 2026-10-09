@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="filefender-version" content="{{VERSION}}">
+  <meta name="filefender-assets" content="{{ASSETS}}">
+  <title>FileFender</title>
+  <link rel="icon" href="/assets/logo.svg?v={{ASSETS}}" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v={{ASSETS}}">
+  <script src="/assets/i18n.js?v={{ASSETS}}" defer></script>
+  <script src="/assets/app.js?v={{ASSETS}}" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/dashboard">
+        <img src="/assets/logo.svg?v={{ASSETS}}" alt="" width="34" height="34">
+        <span>FileFender</span>
+      </a>
+      <nav class="tabs" id="tabs" hidden>
+        <a href="#/dashboard" data-page="dashboard" data-i18n="nav.dashboard">Dashboard</a>
+        <a href="#/scan" data-page="scan" data-i18n="nav.scan">Scan a file</a>
+        <a href="#/lists" data-page="lists" data-i18n="nav.lists">Lists</a>
+        <a href="#/api" data-page="api" data-i18n="nav.api">API</a>
+        <a href="#/settings" data-page="settings" data-i18n="nav.settings">Settings</a>
+        <a href="#/activity" data-page="activity" data-i18n="nav.activity">Activity</a>
+        <a href="#/account" data-page="account" data-i18n="nav.account">Account</a>
+      </nav>
+      <div class="tools">
+        <span class="pill" id="health" hidden></span>
+        <label class="select">
+          <span class="sr" data-i18n="top.language">Language</span>
+          <select id="lang"></select>
+        </label>
+        <button class="icon-btn" id="theme" type="button" data-i18n-title="top.theme"></button>
+        <button class="icon-btn" id="signout" type="button" data-i18n-title="top.signout" hidden></button>
+      </div>
+    </div>
+  </header>
+  <main id="app" class="container" aria-live="polite"></main>
+  <footer class="footer" id="footer"></footer>
+  <noscript><p class="container">The dashboard needs JavaScript. The API works without it.</p></noscript>
+</body>
+</html>

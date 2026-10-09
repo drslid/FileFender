@@ -1,0 +1,36 @@
+# FileFender with Docker Compose. Put your settings in .env next to this file:
+#
+#   FILEFENDER_DOMAIN=scan.example.com        # omit to serve plain HTTP on 8080 behind a proxy
+#   FILEFENDER_ACME_EMAIL=you@example.com
+#
+# then: docker compose up -d, and open the dashboard within 30 minutes to create the
+# administrator account. Feeds, YARA, MalwareBazaar, file policy and alerts are set in its
+# Settings tab.
+services:
+  filefender:
+    image: ghcr.io/drslid/filefender:${FILEFENDER_TAG:-stable}
+    container_name: filefender
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - filefender-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  filefender-data:

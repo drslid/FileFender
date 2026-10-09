@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain
+        run: |
+          rustup toolchain install 1.99 --profile minimal --component rustfmt,clippy
+          rustup default 1.99
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  static:
+    name: Dashboard and scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: node --check web/app.js && node --check web/i18n.js
+      - run: node scripts/check-web.mjs
+      - run: shellcheck install.sh scripts/*.sh
+
+  image:
+    name: Container image
+    needs: [rust, static]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          pull: true
+          tags: filefender:ci
+          cache-from: type=gha,scope=ci
+          cache-to: type=gha,mode=max,scope=ci
+      - name: Start it the way the installer does
+        run: |
+          docker run -d --name filefender -p 127.0.0.1:8080:8080 -v filefender-data:/data \
+            --read-only --tmpfs /tmp:size=64m,mode=1777 --cap-drop ALL \
+            --security-opt no-new-privileges:true --health-interval 5s filefender:ci
+      - name: Wait for the health check
+        run: |
+          for _ in $(seq 1 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' filefender)"
+            if [ "$status" = healthy ]; then exit 0; fi
+            sleep 5
+          done
+          echo "container is $status" >&2
+          exit 1
+      - name: End-to-end test with the real engines
+        run: |
+          key="$(docker exec filefender filefender keys create ci | grep -E '^ff_')"
+          echo "::add-mask::$key"
+          FILEFENDER_URL=http://127.0.0.1:8080 FILEFENDER_KEY="$key" scripts/smoke-test.sh
+      - name: Container logs
+        if: always()
+        run: docker logs filefender 2>&1 | tail -n 150
