@@ -586,7 +586,34 @@ The dashboard works on phones, in light and dark, and in 10 languages, including
 
 `clamd` keeps its signatures in memory (about 1 GB) and briefly needs twice that while it reloads new signatures. FileFender itself uses less than 100 MB.
 
-Measured on an 8 vCPU AMD EPYC 7763 server: 200 random 256 KB files sent by 20 parallel clients were all scanned by ClamAV and YARA-X at 88 files per second, 81 ms median and 132 ms p95 latency. The EICAR file is detected in 3 ms. With signatures already on disk, the engines are ready 8 seconds after start.
+### Benchmarks
+
+[scripts/bench.mjs](scripts/bench.mjs) sends generated files to a running instance: first one at a time, then from 16 parallel clients. Every file has random content, so no verdict comes from the cache. Measured on 2026-10-09 with the published image v0.1.0 and its default settings: ClamAV 1.5.4 with 3.6 million signatures, YARA Forge `core` with 5,141 rules, MalwareBazaar off.
+
+| File | Size | One file alone | GitHub runner, 4 vCPU | Server, 8 vCPU |
+| --- | ---: | ---: | ---: | ---: |
+| CSV text | 20 kB | 14 ms | 181 files/s | 287 files/s |
+| PDF with a picture | 246 kB | 85 ms | 28 files/s | 43 files/s |
+| Word document | 147 kB | 157 ms | 16.5 files/s | 30 files/s |
+| PNG picture | 2.0 MB | 111 ms | 25 files/s, 49 MB/s | 43 files/s, 86 MB/s |
+| ZIP of 20 files | 5.0 MB | 4.1 s | 0.6 files/s, 3 MB/s | 1.1 files/s, 5 MB/s |
+| Binary file | 25 MB | 0.97 s | 2.0 files/s, 51 MB/s | 3.3 files/s, 83 MB/s |
+
+- **One file alone** is the median time of a request, upload included, on the GitHub runner; the 8 vCPU server is within about 10%.
+- With 16 parallel clients, FileFender scans as many files at a time as the server has CPUs, and the other uploads wait in the queue.
+- The EICAR test file is detected in 3 to 5 ms. A file scanned before is answered from the cache in 1 to 2 ms.
+- ZIP files, and Office documents, which are ZIP files inside, are the slow case: ClamAV inspects them at about 0.8 s per MB of archive. The official `clamscan` 1.5.4 takes as long with the same signatures, and turning YARA off changes nothing. A 100 MB archive of photos takes more than a minute, so raise the scan time limit if you accept large archives.
+- The container used 1.1 to 1.2 GiB of memory when idle, and 1.6 to 2.0 GiB at most during the run. It was ready 9 to 10 seconds after `docker run`.
+- Machines: a GitHub-hosted `ubuntu-24.04` runner (4 vCPU AMD EPYC 9V74, 16 GB), and a virtual machine with 8 vCPU AMD EPYC 7763 and 32 GB, shared with other services.
+
+To measure your own hardware, start the **Benchmark** workflow from the Actions tab of your fork, or run the script from a clone of this repository (Node.js 20 or later) against a test instance:
+
+```bash
+docker exec filefender filefender keys create bench   # prints the key once
+FILEFENDER_URL=https://scan.example.com FILEFENDER_KEY=ff_... node scripts/bench.mjs
+```
+
+The run sends about 1 GB in 1,000 scans, which then appear in the dashboard counters.
 
 <a id="faq"></a>
 
@@ -673,7 +700,7 @@ Without Docker, run `cargo run -- serve` with ClamAV installed locally and `FILE
 src/            API, scan pipeline, settings, file policy, lists, alerts, activity log, keys, TLS
 src/clamav/     clamd and freshclam supervision, clamd protocol, third-party feeds
 web/            Dashboard: plain HTML, CSS and JavaScript, no build step
-scripts/        End-to-end smoke test and translation check
+scripts/        End-to-end smoke test, benchmark and translation check
 install.sh      Server installer and update timer
 Dockerfile      Multi-architecture image on top of the official ClamAV image
 ```
